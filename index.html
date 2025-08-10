@@ -1850,59 +1850,97 @@ body.vcr-mode .year-slider::-moz-range-thumb {
   
   <script>
     // YouTube Player Setup
-    let trailerPlayer = null;
-    let youtubeReady = false;
+    // Make these globally available
+    window.trailerPlayer = null;
+    window.youtubeReady = false;
 
     // Player state change handler - defined globally
     window.onPlayerStateChange = function(event) {
-      console.log("🎬 ===== PLAYER STATE EVENT RECEIVED =====");
-      console.log("🎬 Event data:", event.data);
-      console.log("🎬 Event target:", event.target);
-      console.log("🎬 Auto-trailer mode:", window.isAutoTrailerMode);
-      console.log("🎬 YouTube Player State:", getStateName ? getStateName(event.data) : event.data);
+      try {
+        console.log("🎬 ===== PLAYER STATE EVENT RECEIVED =====");
+        console.log("🎬 Event data:", event.data);
+        console.log("🎬 Event target:", event.target);
+        console.log("🎬 Auto-trailer mode:", window.isAutoTrailerMode);
+        console.log("🎬 YouTube Player State:", window.getStateName ? window.getStateName(event.data) : event.data);
       
-      if (event.data === YT.PlayerState.ENDED) {
-        console.log("🔚 Trailer ended");
+        if (event.data === (window.YT ? window.YT.PlayerState.ENDED : 0)) {
+          console.log("🔚 Trailer ended");
+          
+          if (window.isAutoTrailerMode) {
+            console.log("🔁 Auto mode - finding next trailer");
+            setTimeout(() => {
+              if (window.findTrailerAndPlay) {
+                try {
+                  window.findTrailerAndPlay();
+                } catch (error) {
+                  console.error("❌ Error in trailer ended callback:", error);
+                }
+              }
+            }, 1000);
+          } else {
+            console.log("🎬 Single mode - trailer ended, staying open");
+          }
+        }
         
-        if (window.isAutoTrailerMode) {
-          console.log("🔁 Auto mode - finding next trailer");
-          setTimeout(() => {
-            if (window.findTrailerAndPlay) {
-              window.findTrailerAndPlay();
-            }
-          }, 1000);
-        } else {
-          console.log("🎬 Single mode - trailer ended, staying open");
+        if (event.data === (window.YT ? window.YT.PlayerState.UNSTARTED : -1)) {
+          console.log("⚠️ Video unstarted - possible region/age restriction");
+          if (window.isAutoTrailerMode) {
+            console.log("🔄 Auto mode: Skipping restricted video");
+            setTimeout(() => {
+              if (window.findTrailerAndPlay) {
+                try {
+                  window.findTrailerAndPlay();
+                } catch (error) {
+                  console.error("❌ Error in unstarted video callback:", error);
+                }
+              }
+            }, 2000);
+          }
         }
-      }
-      
-      if (event.data === YT.PlayerState.UNSTARTED) {
-        console.log("⚠️ Video unstarted - possible region/age restriction");
-        if (window.isAutoTrailerMode) {
-          console.log("🔄 Auto mode: Skipping restricted video");
-          setTimeout(() => {
-            if (window.findTrailerAndPlay) {
-              window.findTrailerAndPlay();
-            }
-          }, 2000);
+        
+        if (event.data === -1) {
+          console.log("❌ Video error detected");
+          if (window.isAutoTrailerMode) {
+            console.log("🔄 Auto mode: Skipping error video");
+            setTimeout(() => {
+              if (window.findTrailerAndPlay) {
+                try {
+                  window.findTrailerAndPlay();
+                } catch (error) {
+                  console.error("❌ Error in error video callback:", error);
+                }
+              }
+            }, 2000);
+          }
         }
-      }
-      
-      if (event.data === -1) {
-        console.log("❌ Video error detected");
-        if (window.isAutoTrailerMode) {
-          console.log("🔄 Auto mode: Skipping error video");
-          setTimeout(() => {
-            if (window.findTrailerAndPlay) {
-              window.findTrailerAndPlay();
+        
+        // Handle iframe player state changes (for non-API players)
+        if (window.iframePlayerActive && window.isAutoTrailerMode) {
+          console.log("🎥 Iframe player detected in auto mode");
+          // Set a fallback timer for iframe players
+          if (window.iframeFallbackTimer) {
+            clearTimeout(window.iframeFallbackTimer);
+          }
+          window.iframeFallbackTimer = setTimeout(() => {
+            if (window.isAutoTrailerMode) {
+              console.log("🎥 Iframe fallback - advancing to next trailer");
+              if (window.findTrailerAndPlay) {
+                try {
+                  window.findTrailerAndPlay();
+                } catch (error) {
+                  console.error("❌ Error in iframe fallback timer callback:", error);
+                }
+              }
             }
-          }, 2000);
+          }, 30000); // 30 second fallback (increased from 15)
         }
+      } catch (error) {
+        console.error("❌ Error in onPlayerStateChange:", error);
       }
     };
 
     window.onYouTubeIframeAPIReady = function () {
-      trailerPlayer = new YT.Player("player", {
+      window.trailerPlayer = new YT.Player("player", {
         height: "390",
         width: "640",
         videoId: "",
@@ -1916,17 +1954,24 @@ body.vcr-mode .year-slider::-moz-range-thumb {
         },
         events: {
           onReady: () => {
-            youtubeReady = true;
+            window.youtubeReady = true;
             console.log("✅ YouTube Player is fully ready");
             
             // Test if events are working
             setTimeout(() => {
               console.log("🧪 Testing player event system...");
-              console.log("🧪 Player object:", trailerPlayer);
-              console.log("🧪 Player ready state:", trailerPlayer.getPlayerState());
+              console.log("🧪 Player object:", window.trailerPlayer);
+              console.log("🧪 Player ready state:", window.trailerPlayer.getPlayerState());
             }, 1000);
           },
-          onStateChange: window.onPlayerStateChange
+          onStateChange: (event) => {
+            // Call the global function if it exists
+            if (window.onPlayerStateChange) {
+              window.onPlayerStateChange(event);
+            } else {
+              console.warn("⚠️ onPlayerStateChange not yet defined");
+            }
+          }
         }
       });
 
@@ -2052,35 +2097,107 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       
       // Auto-advance is now handled by onPlayerStateChange event
       // when the video actually ends
+      
+      console.log("🎥 Trailer overlay should now be visible");
+      console.log("🎥 Auto-trailer mode:", window.isAutoTrailerMode);
     }
     
     // Helper function to create iframe player
     function createIframePlayer(videoId) {
       const playerDiv = document.getElementById('player');
       if (playerDiv) {
+        // Check if we already have a custom iframe player to prevent duplication
+        const existingIframe = document.getElementById('custom-iframe-player');
+        if (existingIframe) {
+          console.log("🎥 Custom iframe player already exists, removing old one");
+          existingIframe.remove();
+        }
+        
+        // Clear any existing timers first
+        if (window.fallbackTimeout) {
+          clearTimeout(window.fallbackTimeout);
+          window.fallbackTimeout = null;
+        }
+        if (window.iframeDurationTimer) {
+          clearTimeout(window.iframeDurationTimer);
+          window.iframeDurationTimer = null;
+        }
+        if (window.iframeFallbackTimer) {
+          clearTimeout(window.iframeFallbackTimer);
+          window.iframeFallbackTimer = null;
+        }
+        
+        // IMPORTANT: Disable the YouTube API player to prevent conflicts
+        if (window.trailerPlayer && window.trailerPlayer.destroy) {
+          try {
+            window.trailerPlayer.destroy();
+            window.trailerPlayer = null;
+            window.youtubeReady = false;
+            console.log("🎥 Destroyed YouTube API player to prevent conflicts");
+          } catch (error) {
+            console.warn("⚠️ Could not destroy YouTube API player:", error);
+          }
+        }
+        
+        // Clear the player div completely
+        playerDiv.innerHTML = '';
+        
         const iframe = document.createElement('iframe');
         iframe.width = '100%';
         iframe.height = '100%';
         iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
         iframe.frameBorder = '0';
         iframe.allowFullscreen = true;
+        iframe.id = 'custom-iframe-player'; // Give it a unique ID
         
-        playerDiv.innerHTML = '';
         playerDiv.appendChild(iframe);
         console.log("🎥 Iframe player created for video:", videoId);
         
+        // Mark iframe player as active for auto-trailer mode
+        window.iframePlayerActive = true;
+        
         // Add fallback timeout for iframe players (since they don't trigger API events)
         if (window.isAutoTrailerMode) {
-          console.log("🎥 Setting fallback timeout for iframe player (15 seconds)");
+          console.log("🎥 Setting fallback timeout for iframe player (30 seconds)");
           window.fallbackTimeout = setTimeout(() => {
             if (window.isAutoTrailerMode) {
               console.log("🎥 Fallback timeout triggered - advancing to next trailer");
               if (window.findTrailerAndPlay) {
-                window.findTrailerAndPlay();
+                try {
+                  window.findTrailerAndPlay();
+                } catch (error) {
+                  console.error("❌ Error in fallback timeout callback:", error);
+                }
               }
             }
-          }, 15000); // 15 seconds fallback (reduced from 30)
+          }, 30000); // 30 seconds fallback (increased from 15)
         }
+        
+        // Try to detect when video ends by monitoring iframe events
+        iframe.addEventListener('load', () => {
+          console.log("🎥 Iframe loaded, setting up event monitoring");
+          
+          // For iframe players, we need to rely on timeouts since we can't access the player state
+          if (window.isAutoTrailerMode) {
+            // Set a more accurate timeout based on typical trailer length
+            const trailerDuration = 180000; // 3 minutes default (increased from 2.5)
+            if (window.iframeDurationTimer) {
+              clearTimeout(window.iframeDurationTimer);
+            }
+            window.iframeDurationTimer = setTimeout(() => {
+              if (window.isAutoTrailerMode) {
+                console.log("🎥 Duration-based timeout - advancing to next trailer");
+                if (window.findTrailerAndPlay) {
+                  try {
+                    window.findTrailerAndPlay();
+                  } catch (error) {
+                    console.error("❌ Error in duration timeout callback:", error);
+                  }
+                }
+              }
+            }, trailerDuration);
+          }
+        });
       }
     }
 
@@ -2102,11 +2219,37 @@ body.vcr-mode .year-slider::-moz-range-thumb {
         console.log("🛑 Cleared fallback timeout");
       }
       
-      // Clear the player div
+      // Clear iframe fallback timer
+      if (window.iframeFallbackTimer) {
+        clearTimeout(window.iframeFallbackTimer);
+        window.iframeFallbackTimer = null;
+        console.log("🛑 Cleared iframe fallback timer");
+      }
+      
+      // Clear iframe duration timer
+      if (window.iframeDurationTimer) {
+        clearTimeout(window.iframeDurationTimer);
+        window.iframeDurationTimer = null;
+        console.log("🛑 Cleared iframe duration timer");
+      }
+      
+      // Clear the player div and remove any custom iframe
       const playerDiv = document.getElementById('player');
       if (playerDiv) {
+        // Remove the custom iframe player specifically
+        const customIframe = document.getElementById('custom-iframe-player');
+        if (customIframe) {
+          customIframe.remove();
+          console.log("🎥 Removed custom iframe player");
+        }
         playerDiv.innerHTML = '';
       }
+      
+      // Reset iframe player flag
+      window.iframePlayerActive = false;
+      
+      // Optionally recreate the YouTube API player for future use
+      // (This will happen automatically when the page loads, so not strictly necessary)
       
       // Hide overlay
       const overlay = document.getElementById('trailer-overlay');
@@ -2118,6 +2261,8 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       // Restart auto-fetch if not in auto-trailer mode
       if (!window.isAutoTrailerMode) {
         console.log("🔄 Restarting auto-fetch after trailer close");
+        // Start the visual countdown timer immediately
+        startFetchCountdown(20000); // 20 seconds countdown
         setTimeout(() => {
           startAutoFetch();
         }, 20000);
@@ -2166,9 +2311,14 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       
       // Store trailer URL for single trailer mode
       if (data.trailerUrl) {
-        currentTrailerUrl = data.trailerUrl;
+        window.currentTrailerUrl = data.trailerUrl; // Set globally
         appState.currentTrailerUrl = data.trailerUrl; // Also set in appState for compatibility
         console.log("🎬 Trailer URL stored:", data.trailerUrl);
+        console.log("🎬 Global currentTrailerUrl:", window.currentTrailerUrl);
+        console.log("🎬 AppState currentTrailerUrl:", appState.currentTrailerUrl);
+      } else {
+        console.warn("⚠️ No trailer URL in film data:", data);
+        console.warn("⚠️ Film data keys:", Object.keys(data));
       }
 
       // Refresh info panel
@@ -2211,15 +2361,23 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       const trailerBtn = document.getElementById("trailer-button");
       const trailerImg = trailerBtn?.querySelector("img");
 
+      console.log("🔧 Setting trailer button state:");
+      console.log("🔧 Trailer URL:", data.trailerUrl);
+      console.log("🔧 Button element:", trailerBtn);
+      console.log("🔧 Image element:", trailerImg);
+
       if (!data.trailerUrl) {
         trailerBtn.disabled = true;
         trailerImg.src = "play-disabled.png";
         trailerImg.style.opacity = "0.3";
+        trailerBtn.style.cursor = "not-allowed";
+        console.log("❌ Trailer button disabled - no trailer available");
       } else {
         trailerBtn.disabled = false;
         trailerImg.src = "play.png";
-        trailerImg.style.opacity = "0.6";
+        trailerImg.style.opacity = "1";
         trailerBtn.style.cursor = "pointer";
+        console.log("✅ Trailer button enabled for:", data.trailerUrl);
       }
 
       // Bind TMDB recall button
@@ -2257,7 +2415,8 @@ body.vcr-mode .year-slider::-moz-range-thumb {
           applyFilmToUI(data);
           
           // Store current trailer URL
-          currentTrailerUrl = data.trailerUrl;
+          window.currentTrailerUrl = data.trailerUrl;
+          appState.currentTrailerUrl = data.trailerUrl;
           
           // Play the trailer in popup
           playTrailer(data.trailerUrl);
@@ -2314,7 +2473,7 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       }
 
       fetchWithCountdown(false, true).then(() => {
-        if (!isAutoTrailerMode) {
+        if (!window.isAutoTrailerMode) {
           appState.fetchTimer = setTimeout(startAutoFetch, 60000);
         } else {
           console.log("🛑 Skipped auto fetch loop restart — autoplay is now active.");
@@ -2519,27 +2678,53 @@ body.vcr-mode .year-slider::-moz-range-thumb {
     // ===== SIMPLE TRAILER SYSTEM =====
     
     // Global trailer state
-    let isAutoTrailerMode = false;
-    let currentTrailerUrl = null;
+    // Initialize global variables
+    window.currentTrailerUrl = null;
     
     // 1. Single Trailer Mode - Play current trailer, stay open
     function playSingleTrailer() {
       console.log("🎬 Single trailer button clicked");
-      console.log("🎬 Current trailer URL:", currentTrailerUrl);
+      console.log("🎬 Global currentTrailerUrl:", window.currentTrailerUrl);
       console.log("🎬 AppState trailer URL:", appState.currentTrailerUrl);
+      console.log("🎬 AppState current film:", appState.currentFilm);
+      
+      // Check if DOM elements are ready
+      const playerDiv = document.getElementById('player');
+      const overlay = document.getElementById('trailer-overlay');
+      
+      if (!playerDiv) {
+        console.error("❌ Player div not found - DOM not ready yet");
+        return;
+      }
+      
+      if (!overlay) {
+        console.error("❌ Trailer overlay not found - DOM not ready yet");
+        return;
+      }
+      
+      console.log("✅ DOM elements ready - player div:", playerDiv, "overlay:", overlay);
       
       // Use either global or appState trailer URL
-      const trailerUrl = currentTrailerUrl || appState.currentTrailerUrl;
+      let trailerUrl = window.currentTrailerUrl || appState.currentTrailerUrl;
       
       if (!trailerUrl) {
         console.warn("❌ No trailer available - trying to find one...");
+        console.warn("❌ This might happen if the first film loaded doesn't have a trailer");
         // Try to find a trailer if none is available
         findTrailerAndPlay();
         return;
       }
       
-      console.log("🎬 Playing single trailer");
-      isAutoTrailerMode = false;
+      // Ensure the trailer URL is a valid YouTube URL
+      if (!trailerUrl.includes("youtube.com") && !trailerUrl.includes("youtu.be")) {
+        console.warn("❌ Invalid trailer URL format:", trailerUrl);
+        // Try to find a trailer if the current one is invalid
+        findTrailerAndPlay();
+        return;
+      }
+      
+      console.log("🎬 Playing single trailer:", trailerUrl);
+      window.isAutoTrailerMode = false;
       
       // Play trailer in popup
       playTrailer(trailerUrl);
@@ -2559,6 +2744,13 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       
       window.isAutoTrailerMode = true;
       console.log("🎬 Auto-trailer mode set to:", window.isAutoTrailerMode);
+      
+      // Reset the visual timer ring since we're not auto-fetching anymore
+      const circle = document.querySelector("#save-timer-ring circle");
+      if (circle) {
+        circle.style.strokeDashoffset = "0";
+        console.log("🎬 Reset visual timer ring for auto-trailer mode");
+      }
       
       // Check if we have a current film with a trailer
       if (appState.currentTrailerUrl && appState.currentTrailerUrl.includes("youtube.com")) {
@@ -2594,6 +2786,10 @@ body.vcr-mode .year-slider::-moz-range-thumb {
         button.style.backgroundColor = "";
         button.style.color = "";
         
+        // Restart the visual timer ring since we're back to auto-fetch mode
+        startFetchCountdown(20000); // 20 seconds countdown
+        console.log("🎬 Restarted visual timer ring for auto-fetch mode");
+        
         // Auto-advance is now handled by onPlayerStateChange event
       }
     }
@@ -2604,6 +2800,17 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       if (window.isAutoTrailerMode) {
         findTrailerAndPlay();
       }
+    }
+    
+    // 6. Debug function to check trailer state
+    function debugTrailerState() {
+      console.log("🔍 === TRAILER STATE DEBUG ===");
+      console.log("🔍 Global currentTrailerUrl:", window.currentTrailerUrl);
+      console.log("🔍 AppState currentTrailerUrl:", appState.currentTrailerUrl);
+      console.log("🔍 Auto-trailer mode:", window.isAutoTrailerMode);
+      console.log("🔍 Trailer button disabled:", document.getElementById("trailer-button")?.disabled);
+      console.log("🔍 Trailer button image src:", document.getElementById("trailer-button")?.querySelector("img")?.src);
+      console.log("🔍 === END DEBUG ===");
     }
     
     // Auto-advance timer function - REMOVED
@@ -2664,6 +2871,9 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       }
       if (key === 'q') {
         quickAdvance();
+      }
+      if (key === 'd') {
+        debugTrailerState();
       }
     });
 
@@ -2991,10 +3201,32 @@ body.vcr-mode .year-slider::-moz-range-thumb {
       // Run validation in background
       validateAllGenres();
 
-      // First load
-      console.log("🚀 Starting first fetch...");
-      fetchWithCountdown(false, true).then(() => {
-
+      // First load - require a trailer so the single trailer button works immediately
+      console.log("🚀 Starting first fetch with trailer requirement...");
+      fetchWithCountdown(true, true).then(() => {
+        console.log("✅ First film loaded with trailer");
+        console.log("✅ DOM should now be ready for trailer playback");
+        
+        // Add a small delay to ensure everything is properly initialized
+        setTimeout(() => {
+          console.log("🎬 Checking if trailer is ready for playback...");
+          console.log("🎬 Global currentTrailerUrl:", window.currentTrailerUrl);
+          console.log("🎬 AppState currentTrailerUrl:", appState.currentTrailerUrl);
+          
+          if (window.currentTrailerUrl || appState.currentTrailerUrl) {
+            console.log("✅ Trailer URL is ready for playback");
+            console.log("🎬 Auto-playing first trailer...");
+            
+            // Auto-play the first trailer
+            const trailerUrl = window.currentTrailerUrl || appState.currentTrailerUrl;
+            if (trailerUrl) {
+              playTrailer(trailerUrl);
+            }
+          } else {
+            console.warn("⚠️ No trailer URL found after first load - this might cause issues");
+          }
+        }, 1000);
+        
         appState.fetchTimer = setTimeout(startAutoFetch, 60000);
       });
     };
@@ -3018,6 +3250,17 @@ body.vcr-mode .year-slider::-moz-range-thumb {
     
     // Initialize auto-trailer mode variable
     window.isAutoTrailerMode = false;
+    window.iframePlayerActive = false;
+    window.iframeFallbackTimer = null;
+    window.iframeDurationTimer = null;
+    
+    // Add some debugging
+    console.log("🎬 Auto-trailer mode initialized:", window.isAutoTrailerMode);
+    console.log("🎬 Global functions available:", {
+      findTrailerAndPlay: !!window.findTrailerAndPlay,
+      onPlayerStateChange: !!window.onPlayerStateChange,
+      getStateName: !!window.getStateName
+    });
   </script>
 </body>
 </html>
